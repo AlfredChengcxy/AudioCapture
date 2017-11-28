@@ -20,5 +20,5 @@ pcm.o:pcm.c
 	arm-none-linux-gnueabi-gcc -c pcm.c
 mixer.o:mixer.c
 	arm-none-linux-gnueabi-gcc -c mixer.c
-#clean:
-#	rm mixer.o pcm.o tinymix.o tinycap.o tinypcminfo.o tinyplay.o
+clean:
+	rm mixer.o pcm.o tinymix.o tinycap.o tinypcminfo.o tinyplay.o tinyplay tinypcminfo tinymix tinycap
