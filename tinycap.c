@@ -187,7 +187,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
 {
     struct pcm_config config;
     struct pcm *pcm;
-    char *buffer;
+    uint8_t *buffer;
     unsigned int size;
     unsigned int bytes_read = 0;
 
@@ -208,7 +208,9 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
     }
 
     size = pcm_frames_to_bytes(pcm, pcm_get_buffer_size(pcm));
-    buffer = malloc(size);
+
+
+    buffer = (uint8_t *)malloc(size);
     if (!buffer) {
         fprintf(stderr, "Unable to allocate %d bytes\n", size);
         free(buffer);
@@ -216,72 +218,103 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
         return 0;
     }
 
-    printf("Capturing sample: %u ch, %u hz, %u bit\n", channels, rate,
-           pcm_format_to_bits(format));
+    printf("Capturing sample: %u ch, %u hz, %u bit\n", channels, rate,pcm_format_to_bits(format));
+    int i=0,j=0;
+    int ignore_size=0;
+    int ignore_count=0;
+    int voice_count = 0;
+    uint8_t start_write=0;
+    uint8_t file_temp_open=0;
+    int frames_temp=0;
+    int index=0;
+    char *file_name = (char *)malloc(20);
+    FILE *file_temp;
+    int file_bytes_read=0;
+    #define THRESHOLD_AUDIO 256
+    #define COUNT_THRESHOLD 16
+    #define SECTION_AUDIO   650
 
-            int i=0;
-            int ignore_size=0;
-            int ignore_count=0;
-            uint8_t start_write=0;
-            uint8_t file_temp_open=0;
-            int frames_temp=0;
-            int index=0;
-            char *file_name = (char *)malloc(20);
-            FILE *file_temp;
-            #define THRESHOLD_AUDIO 128
-            #define COUNT_THRESHOLD 1
-            
-    while (capturing && !pcm_read(pcm, buffer, size)) {
-        for(i=0;i<size-2;i++)//whether is a audio period
+    printf("%d\n",size);
+    while (capturing && !pcm_read(pcm, buffer, size)) 
+    {
+
+        for(j=0;j<=16-1;j++)
         {
-            //printf("%X\t",*(buffer+i)+(*(buffer+i+1)*256));
-            if((int16_t)(*(buffer+i)+*(buffer+i+1)*256)<650&&(int16_t)(*(buffer+i)+*(buffer+i+1)*256)>-650)ignore_size++;
-            else ignore_size=0;
-            //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
-        }
 
-        if(ignore_size<=THRESHOLD_AUDIO&&start_write==0){//if it's a audio period,open the file_temp
-            start_write=1;
-            file_temp_open=1;
-            sprintf(file_name,"%d.wav",index);
-            file_temp = fopen(file_name, "wb");
-            if (!file_temp) {
-                fprintf(stderr, "Unable to create temp_file '%s'\n", file_name);
-                return 1;
+            for(i=0;i<=size/16-2;i+=2)//whether is a audio period(1024*4*2)
+            {
+                //printf("%X\t",*(buffer+i)+(*(buffer+i+1)*256));
+                if ((int16_t)(*(buffer+j * 1024 + i)|(*(buffer+j * 1024 + i + 1))<<8)<SECTION_AUDIO && (int16_t)(*(buffer +j * 1024+ i)|*(buffer +j * 1024+ i + 1)<<8)>-SECTION_AUDIO)ignore_size++;
+                else ignore_size = 0;
+                //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
             }
+
+            if(ignore_size<=THRESHOLD_AUDIO&&start_write==0&& voice_count >= 4)
+            {//if it's a audio period,open the file_temp
+                start_write=1;
+                file_temp_open=1;
+                sprintf(file_name,"%d.wav",index);
+                file_temp = fopen(file_name, "wb");
+                if (!file_temp) 
+                {
+                    fprintf(stderr, "Unable to create temp_file '%s'\n", file_name);
+                    return 1;
+                }
+            }
+
+            if (ignore_size > THRESHOLD_AUDIO) 
+            {
+                voice_count = 0;
+                ignore_count++;
+            }
+            else 
+            {
+                voice_count++;
+                ignore_count = 0;
+            }
+
+            if(ignore_count>COUNT_THRESHOLD)start_write=0;
+
+            if(start_write)
+            {//,write to file_temp
+                if (fwrite(buffer+j*1024, 1, size/16, file_temp) != size/16) 
+                {
+                    fprintf(stderr,"Error capturing sample\n");
+                    break;
+                }
+                bytes_read += size/16;
+            }  
+
+            else if(file_temp_open)
+            {//
+                ignore_count=0;
+                frames_temp=bytes_read/2;//pcm_bytes_to_frames(pcm, bytes_read);
+                printf("Captured %d frames\n", frames_temp);
+                  //   write header now all information is known 
+                header->data_sz = frames_temp * header->block_align;
+                header->riff_sz = header->data_sz + sizeof(struct wav_header) - 8;
+                fseek(file_temp, 0, SEEK_SET);
+                fwrite(header, sizeof(struct wav_header), 1, file_temp);
+                printf("%d\n",index);
+                index++;
+                bytes_read=0;
+                fclose(file_temp);
+                file_temp_open=0;
+            }
+            
+            ignore_size=0;
         }
 
-        if(ignore_size>THRESHOLD_AUDIO)ignore_count++;
-        else ignore_count=0;
 
-        if(ignore_count>COUNT_THRESHOLD)start_write=0;
-
-        if(start_write){//,write to file_temp
-            if (fwrite(buffer, 1, size, file_temp) != size) {
+        if (fwrite(buffer, 1, size, file) != size) 
+        {
             fprintf(stderr,"Error capturing sample\n");
             break;
         }
-            bytes_read += size;
-        }
-
-        else if(file_temp_open){//
-        ignore_count=0;
-        frames_temp=pcm_bytes_to_frames(pcm, bytes_read);
-        printf("Captured %d frames\n", frames_temp);
-          //   write header now all information is known 
-        header->data_sz = frames_temp * header->block_align;
-        header->riff_sz = header->data_sz + sizeof(struct wav_header) - 8;
-        fseek(file_temp, 0, SEEK_SET);
-        fwrite(header, sizeof(struct wav_header), 1, file_temp);
-        printf("%d\n",index);
-        index++;
-        bytes_read=0;
-        fclose(file_temp);
-        file_temp_open=0;
-        }
-        
-        ignore_size=0;
+        file_bytes_read+=size;
     }
+
+    if(file_temp_open){
         frames_temp=pcm_bytes_to_frames(pcm, bytes_read);
         printf("Captured %d frames\n", frames_temp);
           //   write header now all information is known 
@@ -291,11 +324,11 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
         fwrite(header, sizeof(struct wav_header), 1, file_temp);
         printf("%d\n",index);
         fclose(file_temp);
+    }
 
-        printf("333\n");
     free(buffer);
     free(file_name);
     pcm_close(pcm);
-    return pcm_bytes_to_frames(pcm, bytes_read);
+    return file_bytes_read/2;
 }
 
