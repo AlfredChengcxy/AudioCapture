@@ -40,6 +40,8 @@
 
 #define FORMAT_PCM 1
 
+#define DEBUG_FLAG
+
 struct wav_header {
     uint32_t riff_id;
     uint32_t riff_sz;
@@ -68,6 +70,7 @@ void sigint_handler(int sig)
     capturing = 0;
 }
 
+#ifdef DEBUG_FLAG
 int main(int argc, char **argv)
 {
     FILE *file;
@@ -179,11 +182,46 @@ int main(int argc, char **argv)
 
     return 0;
 }
+#else
 
+int capture_audio()
+{
+    struct wav_header header;
+    unsigned int frames;
+
+    header.riff_id = ID_RIFF;
+    header.riff_sz = 0;
+    header.riff_fmt = ID_WAVE;
+    header.fmt_id = ID_FMT;
+    header.fmt_sz = 16;
+    header.audio_format = FORMAT_PCM;
+    header.num_channels = 1;
+    header.sample_rate = 44100;
+
+    header.bits_per_sample = pcm_format_to_bits(PCM_FORMAT_S16_LE);
+    header.byte_rate = (header.bits_per_sample / 8) * header.num_channels * header.sample_rate;
+    header.block_align = header.num_channels * (header.bits_per_sample / 8);
+    header.data_id = ID_DATA;
+
+    frames = capture_sample(0, 0,&header,1,44100,PCM_FORMAT_S16_LE,1024,4);
+
+    return frames;
+}
+
+
+#endif
+
+#ifdef DEBUG_FLAG
 unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             struct wav_header *header,unsigned int channels, unsigned int rate,
                             enum pcm_format format, unsigned int period_size,
                             unsigned int period_count)
+#else
+unsigned int capture_sample(unsigned int card, unsigned int device,
+                            struct wav_header *header,unsigned int channels, unsigned int rate,
+                            enum pcm_format format, unsigned int period_size,
+                            unsigned int period_count)
+#endif
 {
     struct pcm_config config;
     struct pcm *pcm;
@@ -246,6 +284,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                 //printf("%X\t",*(buffer+i)+(*(buffer+i+1)*256));
                 if ((int16_t)(*(buffer+j * 1024 + i)|(*(buffer+j * 1024 + i + 1))<<8)<SECTION_AUDIO && (int16_t)(*(buffer +j * 1024+ i)|*(buffer +j * 1024+ i + 1)<<8)>-SECTION_AUDIO)ignore_size++;
                 else ignore_size = 0;
+                if(ignore_size>THRESHOLD_AUDIO)break; //超过阀值数便没有必要再检测这1024/2个单元里的采样值了
                 //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
             }
 
@@ -276,7 +315,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
             if(ignore_count>COUNT_THRESHOLD)start_write=0;
 
             if(start_write)
-            {//,write to file_temp
+            {//write to file_temp
                 if (fwrite(buffer+j*1024, 1, size/16, file_temp) != size/16) 
                 {
                     fprintf(stderr,"Error capturing sample\n");
@@ -286,16 +325,23 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
             }  
 
             else if(file_temp_open)
-            {//
+            {//end to capture audio
                 ignore_count=0;
                 frames_temp=bytes_read/2;//pcm_bytes_to_frames(pcm, bytes_read);
+
+                #ifdef DEBUG_FLAG
                 printf("Captured %d frames\n", frames_temp);
-                  //   write header now all information is known 
+                #endif
+                //write header now all information is known 
                 header->data_sz = frames_temp * header->block_align;
                 header->riff_sz = header->data_sz + sizeof(struct wav_header) - 8;
                 fseek(file_temp, 0, SEEK_SET);
                 fwrite(header, sizeof(struct wav_header), 1, file_temp);
+
+                #ifdef DEBUG_FLAG
                 printf("%d\n",index);
+                #endif
+
                 index++;
                 bytes_read=0;
                 fclose(file_temp);
@@ -305,24 +351,30 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
             ignore_size=0;
         }
 
-
+        #ifdef DEBUG_FLAG
         if (fwrite(buffer, 1, size, file) != size) 
         {
             fprintf(stderr,"Error capturing sample\n");
             break;
         }
+        #endif
+
         file_bytes_read+=size;
     }
 
     if(file_temp_open){
         frames_temp=pcm_bytes_to_frames(pcm, bytes_read);
+        #ifdef DEBUG_FLAG
         printf("Captured %d frames\n", frames_temp);
-          //   write header now all information is known 
+        #endif
+        //write header now all information is known 
         header->data_sz = frames_temp * header->block_align;
         header->riff_sz = header->data_sz + sizeof(struct wav_header) - 8;
         fseek(file_temp, 0, SEEK_SET);
         fwrite(header, sizeof(struct wav_header), 1, file_temp);
+        #ifdef DEBUG_FLAG
         printf("%d\n",index);
+        #endif
         fclose(file_temp);
     }
 
