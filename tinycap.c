@@ -219,6 +219,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
     }
 
     printf("Capturing sample: %u ch, %u hz, %u bit\n", channels, rate,pcm_format_to_bits(format));
+    
     int i=0,j=0;
     int ignore_size=0;
     int ignore_count=0;
@@ -230,9 +231,11 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
     char *file_name = (char *)malloc(20);
     FILE *file_temp;
     int file_bytes_read=0;
-    #define THRESHOLD_AUDIO 256
-    #define COUNT_THRESHOLD 16
-    #define SECTION_AUDIO   650
+    #define THRESHOLD_AUDIO 256//at least 256 sample datas is not voice.
+    #define COUNT_THRESHOLD 16 //at least 16*1024 bytes is not voice,end capturing
+    #define VOICE_THRESHOLD 4  //at least 4*1024 bytes is voice,start capturing 
+    #define SECTION_AUDIO   650 //sample datas of between -650~650 are not voice 
+
 
     printf("%d\n",size);
     while (capturing && !pcm_read(pcm, buffer, size)) 
@@ -249,7 +252,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                 //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
             }
 
-            if(ignore_size<=THRESHOLD_AUDIO&&start_write==0&& voice_count >= 4)
+            if(ignore_size<=THRESHOLD_AUDIO&&start_write==0&& voice_count >= VOICE_THRESHOLD)//start capturing voice
             {//if it's a audio period,open the file_temp
                 start_write=1;
                 file_temp_open=1;
@@ -273,7 +276,7 @@ unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                 ignore_count = 0;
             }
 
-            if(ignore_count>COUNT_THRESHOLD)start_write=0;
+            if(ignore_count>COUNT_THRESHOLD)start_write=0;//set flag of ending to capture voice 
 
             if(start_write)
             {//,write to file_temp
