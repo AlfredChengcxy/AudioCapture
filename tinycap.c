@@ -40,7 +40,8 @@
 
 #define FORMAT_PCM 1
 
-#define DEBUG_FLAG
+/* To realease this code,just undefine this macro! */
+//#define DEBUG_FLAG
 
 struct wav_header {
     uint32_t riff_id;
@@ -60,10 +61,19 @@ struct wav_header {
 
 int capturing = 1;
 
+#ifdef DEBUG_FLAG
 unsigned int capture_sample(FILE *file, unsigned int card, unsigned int device,
                             struct wav_header *header,unsigned int channels, unsigned int rate,
                             enum pcm_format format, unsigned int period_size,
                             unsigned int period_count);
+#else 
+unsigned int capture_sample(unsigned int card, unsigned int device,
+                            struct wav_header *header,unsigned int channels, unsigned int rate,
+                            enum pcm_format format, unsigned int period_size,
+                            unsigned int period_count);
+
+int capture_audio();
+#endif
 
 void sigint_handler(int sig)
 {
@@ -172,7 +182,7 @@ int main(int argc, char **argv)
                             period_size, period_count);
     printf("Captured %d frames\n", frames);
 
-    /* write header now all information is known */
+    /* write wav header to file now,all information of header is known */
     header.data_sz = frames * header.block_align;
     header.riff_sz = header.data_sz + sizeof(header) - 8;
     fseek(file, 0, SEEK_SET);
@@ -183,7 +193,21 @@ int main(int argc, char **argv)
     return 0;
 }
 #else
+int main()
+{
+    capture_audio();
+    return 0;
+}
 
+
+/*
+  brief:  capture serial audio,and save to wav file\
+          which was named by incremental numbers,if\
+          you want to start to record audio,just call\
+          this fuction!
+  para:   void
+  return: frames
+**/
 int capture_audio()
 {
     struct wav_header header;
@@ -276,15 +300,16 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
     while (capturing && !pcm_read(pcm, buffer, size)) 
     {
 
-        for(j=0;j<=16-1;j++)
+        for(j=0;j<=16-1;j++)//(1024*16 bytes)
         {
 
-            for(i=0;i<=size/16-2;i+=2)//whether is a audio period(1024*4*2)
+            for(i=0;i<=size/16-2;i+=2)//whether is a audio period(1024 bytes)
             {
                 //printf("%X\t",*(buffer+i)+(*(buffer+i+1)*256));
                 if ((int16_t)(*(buffer+j * 1024 + i)|(*(buffer+j * 1024 + i + 1))<<8)<SECTION_AUDIO && (int16_t)(*(buffer +j * 1024+ i)|*(buffer +j * 1024+ i + 1)<<8)>-SECTION_AUDIO)ignore_size++;
                 else ignore_size = 0;
-                if(ignore_size>THRESHOLD_AUDIO)break; //超过阀值数便没有必要再检测这1024/2个单元里的采样值了
+                /*if the ignore_size up to THRESHOLD_AUDIO value,we don't have to compare rest of all!*/
+                if(ignore_size>THRESHOLD_AUDIO)break; 
                 //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
             }
 
@@ -346,6 +371,12 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
                 bytes_read=0;
                 fclose(file_temp);
                 file_temp_open=0;
+                /*****generate a serial audio file, you can add code to handle this audio file!****/
+                /*****************filename: index.wav(index is a incremental number)***************/
+                //coding start
+
+
+                //coding end
             }
             
             ignore_size=0;
