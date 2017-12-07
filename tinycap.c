@@ -35,10 +35,17 @@
 
 #define ID_RIFF 0x46464952
 #define ID_WAVE 0x45564157
-#define ID_FMT  0x20746d66
-#define ID_DATA 0x61746164
+#define ID_FMT  0x20746d66 
+#define ID_DATA 0x61746164 
 
 #define FORMAT_PCM 1
+
+#define SAMPLE_RATE_SET 16000
+#define THRESHOLD_AUDIO 256//at least 256 sample datas is not voice.
+#define COUNT_THRESHOLD 8 //at least 16*1024 bytes is not voice,end capturing
+#define VOICE_THRESHOLD 1  //at least 4*1024 bytes is voice,start capturing 
+#define SECTION_AUDIO   3000 //sample datas of between -650~650 are not voice 
+#define HIGH_THRESHOLD_FRAMES 10000//throw the too short voice(frames)
 
 /* To realease this code,just undefine this macro! */
 //#define DEBUG_FLAG
@@ -88,7 +95,7 @@ int main(int argc, char **argv)
     unsigned int card = 0;
     unsigned int device = 0;
     unsigned int channels = 1;
-    unsigned int rate = 44100;
+    unsigned int rate = SAMPLE_RATE_SET;
     unsigned int bits = 16;
     unsigned int frames;
     unsigned int period_size = 1024;
@@ -220,14 +227,14 @@ int capture_audio()
     header.fmt_sz = 16;
     header.audio_format = FORMAT_PCM;
     header.num_channels = 1;
-    header.sample_rate = 44100;
+    header.sample_rate = SAMPLE_RATE_SET;
 
     header.bits_per_sample = pcm_format_to_bits(PCM_FORMAT_S16_LE);
     header.byte_rate = (header.bits_per_sample / 8) * header.num_channels * header.sample_rate;
     header.block_align = header.num_channels * (header.bits_per_sample / 8);
     header.data_id = ID_DATA;
 
-    frames = capture_sample(0, 0,&header,1,44100,PCM_FORMAT_S16_LE,1024,4);
+    frames = capture_sample(0, 0,&header,1,SAMPLE_RATE_SET,PCM_FORMAT_S16_LE,1024,4);
 
     return frames;
 }
@@ -293,10 +300,6 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
     char *file_name = (char *)malloc(20);
     FILE *file_temp;
     int file_bytes_read=0;
-    #define THRESHOLD_AUDIO 256//at least 256 sample datas is not voice.
-    #define COUNT_THRESHOLD 16 //at least 16*1024 bytes is not voice,end capturing
-    #define VOICE_THRESHOLD 4  //at least 4*1024 bytes is voice,start capturing 
-    #define SECTION_AUDIO   650 //sample datas of between -650~650 are not voice 
 
 
     printf("%d\n",size);
@@ -316,11 +319,14 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
                 //printf("%d\t",(buffer+i)+*(buffer+i+1)*256);
             }
 
+            //printf("%d\t",ignore_size);
+
             if(ignore_size<=THRESHOLD_AUDIO&&start_write==0&& voice_count >= VOICE_THRESHOLD)//start capturing voice
             {//if it's a audio period,open the file_temp
                 start_write=1;
                 file_temp_open=1;
-                sprintf(file_name,"%d.wav",index);
+                sprintf(file_name,"0.wav");
+                //sprintf(file_name,"%d.wav",index);
                 file_temp = fopen(file_name, "wb");
                 if (!file_temp) 
                 {
@@ -357,6 +363,7 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
                 ignore_count=0;
                 frames_temp=bytes_read/2;//pcm_bytes_to_frames(pcm, bytes_read);
 
+                if (frames_temp >= HIGH_THRESHOLD_FRAMES) {
                 #ifdef DEBUG_FLAG
                 printf("Captured %d frames\n", frames_temp);
                 #endif
@@ -374,12 +381,20 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
                 bytes_read=0;
                 fclose(file_temp);
                 file_temp_open=0;
+
                 /*****generate a serial audio file, you can add code to handle this audio file!****/
                 /*****************filename: index.wav(index is a incremental number)***************/
                 //coding start
 
 
                 //coding end
+                }
+                else {
+                    bytes_read = 0;
+                    fclose(file_temp);
+                    file_temp_open = 0;
+                    continue;
+                }
             }
             
             ignore_size=0;
@@ -398,6 +413,7 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
 
     if(file_temp_open){
         frames_temp=pcm_bytes_to_frames(pcm, bytes_read);
+        if (frames_temp >= HIGH_THRESHOLD_FRAMES) {
         #ifdef DEBUG_FLAG
         printf("Captured %d frames\n", frames_temp);
         #endif
@@ -410,6 +426,18 @@ unsigned int capture_sample(unsigned int card, unsigned int device,
         printf("%d\n",index);
         #endif
         fclose(file_temp);
+        /*****generate a serial audio file, you can add code to handle this audio file!****/
+        /*****************filename: index.wav(index is a incremental number)***************/
+        //coding start
+
+        //coding end
+        }
+        else {
+             bytes_read = 0;
+             fclose(file_temp);
+             if(remove(file_name))fprintf(stderr, "Error remove error file!\n");
+             file_temp_open = 0;
+        }
     }
 
     free(buffer);
